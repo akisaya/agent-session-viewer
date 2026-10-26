@@ -120,15 +120,45 @@ export function dayLabel(key) {
   return key.slice(5);
 }
 
-// fmtVersion shortens a binary version for the top bar. A source build between
-// tags reports a Go pseudo-version (v0.7.1-0.20261023093836-e2b24a911967),
-// shown as "v0.7.1-dev (e2b24a9)"; everything else is shown as is.
-export function fmtVersion(v) {
+// pseudoVersion splits a Go pseudo-version, which a source build between tags
+// reports, into the last real tag before the commit ("" when there is none),
+// the short commit and whether the tree was dirty. The go command names the
+// *next* patch (v0.7.1-0.… after v0.7.0), a tag that need not exist, so the
+// base is recovered from the three documented forms:
+//   vX.0.0-yyyymmddhhmmss-abcdef123456         no earlier tag
+//   vX.Y.Z-pre.0.yyyymmddhhmmss-abcdef123456   after vX.Y.Z-pre
+//   vX.Y.(Z+1)-0.yyyymmddhhmmss-abcdef123456   after vX.Y.Z
+// Returns null for anything else (a tag, "dev").
+function pseudoVersion(v) {
+  const m = /^(.*?)(\.0\.|-0\.|-)\d{14}-([0-9a-f]{12})(\+dirty)?$/.exec(v);
+  if (!m) return null;
+  const [, head, sep, rev, dirty] = m;
+  let base = "";
+  if (sep === ".0.") base = head;
+  else if (sep === "-0.") {
+    const n = /^(v\d+\.\d+\.)(\d+)$/.exec(head);
+    if (!n || n[2] === "0") return null;
+    base = n[1] + (Number(n[2]) - 1);
+  }
+  return { base, rev: rev.slice(0, 7), dirty: !!dirty };
+}
+
+// versionLabel is the top-bar text and tooltip for a binary version. A build
+// between tags is shown against the last real tag: "v0.7.0+ (a9d644e)".
+export function versionLabel(v) {
   v = String(v || "dev");
   if (/^\d/.test(v)) v = "v" + v;
-  const m = /^(.*?)[-.](?:0\.)?\d{14}-([0-9a-f]{12})(\+dirty)?$/.exec(v);
-  if (!m) return v;
-  return `${m[1]}-dev (${m[2].slice(0, 7)}${m[3] ? ", dirty" : ""})`;
+  if (v === "dev") return { text: "dev", title: "版本未知（源码构建时没有版本控制信息）" };
+  const p = pseudoVersion(v);
+  if (!p) return { text: v, title: "版本 " + v };
+  const rev = p.rev + (p.dirty ? ", dirty" : "");
+  return {
+    text: p.base ? `${p.base}+ (${rev})` : `dev (${rev})`,
+    title:
+      (p.base ? `${p.base} 之后的提交 ${p.rev}` : `尚无 tag 的提交 ${p.rev}`) +
+      (p.dirty ? "，含未提交的修改" : "") +
+      `（Go 版本号 ${v}）`,
+  };
 }
 
 /* ---------- session / path formatting ---------- */
